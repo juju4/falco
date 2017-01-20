@@ -116,7 +116,7 @@
 # The truncated dpkg-preconfigu is intentional, process names are
 # truncated at the sysdig level.
 - list: package_mgmt_binaries
-  items: [dpkg, dpkg-preconfigu, dnf, rpm, rpmkey, yum, frontend]
+  items: [dpkg, dpkg-preconfigu, dnf, rpm, rpmkey, yum, frontend, apt-add-reposit]
 
 - macro: package_mgmt_procs
   condition: proc.name in (package_mgmt_binaries)
@@ -204,7 +204,9 @@
 - macro: write_etc_common
   condition: >
     etc_dir and evt.dir = < and open_write
-    and not proc.name in (shadowutils_binaries, sysdigcloud_binaries, package_mgmt_binaries, ssl_mgmt_binaries, dhcp_binaries, ldconfig.real, ldconfig, confd)
+    and not proc.name in (passwd_binaries, shadowutils_binaries, sysdigcloud_binaries,
+                          package_mgmt_binaries, ssl_mgmt_binaries, dhcp_binaries,
+                          ldconfig.real, ldconfig, confd, gpg)
     and not proc.pname in (sysdigcloud_binaries)
     and not fd.directory in (/etc/cassandra, /etc/ssl/certs/java)
 
@@ -239,6 +241,7 @@
     sensitive_files and open_read
     and not proc.name in (user_mgmt_binaries, userexec_binaries, package_mgmt_binaries, cron_binaries, read_sensitive_file_binaries, shell_binaries)
     and not cmp_cp_by_passwd
+    and not ansible_running_python
     and not proc.cmdline contains /usr/bin/mandb
   output: "Sensitive file opened for reading by non-trusted program (user=%user.name name=%proc.name command=%proc.cmdline file=%fd.name)"
   priority: WARNING
@@ -295,9 +298,16 @@
     sshd, sudo, su, tmux, screen, emacs, systemd, login, flock, fbash,
     nginx, monit, supervisord, dragent, aws, initdb, docker-compose,
     make, configure, awk, falco, fail2ban-server, apt-get, apt,
-    fleetctl, logrotate, ansible
+    fleetctl, logrotate, ansible, less, adduser, pycompile, pyclean
+    ansible-playboo, apt-key
     ]
 
+# SPECIAL NOTE: This macro eliminates false positives that result from
+# running python scripts as a part of ansible. However, the condition
+# that the command line contains "ansible" is very
+# permissive. Ideally, you should change this macro to explicitly
+# scope the python scripts to a specific directory (namely, your
+# configured remote_tmp directory).
 - macro: ansible_running_python
   condition: proc.pname=python and proc.pcmdline contains ansible
 
@@ -307,7 +317,7 @@
     spawned_process and not container
     and shell_procs
     and proc.pname exists
-    and not proc.pname in (cron_binaries, shell_binaries, known_shell_spawn_binaries, docker_binaries, k8s_binaries)
+    and not proc.pname in (cron_binaries, shell_binaries, known_shell_spawn_binaries, docker_binaries, k8s_binaries, package_mgmt_binaries)
     and not ansible_running_python
   output: "Shell spawned by untrusted binary (user=%user.name shell=%proc.name parent=%proc.pname cmdline=%proc.cmdline pcmdline=%proc.pcmdline)"
   priority: WARNING
